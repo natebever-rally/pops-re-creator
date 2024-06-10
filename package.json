@@ -1,0 +1,16 @@
+{
+  "name": "pops-re-creator",
+  "version": "1.0.0",
+  "description": "Regenerate PoPs demo data",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "Nate Bever",
+  "license": "MIT",
+  "dependencies": {
+    "node-fetch": "^3.3.2",
+    "readline-sync": "^1.4.10"
+  }
+}
