@@ -77,7 +77,7 @@ const getChildren = async function(parent, header) {
         return;
     }
 
-    const url = encodeURI(`${childRef}?pageSize=2000&fetch=Name,Description,PlanEstimate,RefinedEstimate,PreliminaryEstimate,Release,ObjectID,FormattedID,UserStories`);
+    const url = encodeURI(`${childRef}?pageSize=2000&fetch=Name,Description,PlanEstimate,RefinedEstimate,PreliminaryEstimate,Release,ObjectID,FormattedID,UserStories,Children`);
     const response = await fetch(url, {method: 'GET', headers: header});
     const childs = await response.json();
     parent.realChildren = [];
@@ -153,7 +153,7 @@ const getProjectTree = async function(header, projectId) {
     const pJson = await pResponse.json();
     const project = pJson.Project;
 
-    project.realChildren = await getChildren(header, project);
+    project.realChildren = await getChildren(project, header);
 
     writeTheThing(PROJECT_DIR, project);
     return project;
