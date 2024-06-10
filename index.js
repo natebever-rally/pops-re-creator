@@ -8,15 +8,14 @@ const PLAN_DIR = 'plans';
 const ITEM_DIR = 'items';
 const PROJECT_DIR = 'project';
 
-const baseRallyURL = 'https://nbever.testn.f4tech.com';
+const baseRallyURL = 'https://rally1.rallydev.com';
 const baseAPIPath = '/slm/webservice/v2.0';
 const basePath = `${baseRallyURL}${baseAPIPath}`;
 
-// const apiKey = readline.question('APIKey: ');
-const apiKey = '_i3kwn4QSLO52YN9Allh7Fn3PIM40mOhvgmCUNlNK0';
+const apiKey = readline.question('APIKey: ');
 
-const projectId = 49783560880;//readline.question('Parent project ID: ');
-const portfolioType = 2;//readline.question('Portfolio Item Type (Ordinal): ');
+const projectId = readline.question('Parent project ID: ');
+const portfolioType = readline.question('Portfolio Item Type (Ordinal): ');
 
 console.log('Attempting to connect...');
 
