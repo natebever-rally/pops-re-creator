@@ -1,6 +1,7 @@
 import readline from 'readline-sync';
 import fetch from 'node-fetch';
 import fs, { write } from 'fs';
+import { release } from 'os';
 
 const PI_HIERARCHY = 'old_pi_hierarchy';
 const RELEASE_DIR = 'releases.pops';
@@ -29,7 +30,7 @@ let preliminaryDict = {};
 /****** generic *******/
 
 const getReleaseKey = function(item) {
-    return `${item.Name}__${projectDict[item.Project.ObjectID]}`
+    return `${item.Release.Name}__${item.Project._refObjectName}`
 };
 
 const loadThings = async function(header, project, dir, buildThings) {
@@ -99,21 +100,25 @@ const buildReleaseBody = function(item, parent) {
     return body;
 };
 
-const completeReleaseDict = async function(header) {
+const completeReleaseDict = async function(header, project) {
 
     // get Release Names from pops
     const files = fs.readdirSync(RELEASE_DIR);
-    files.forEach( async file => {
+
+    for (let i = 0; i< files.length; i++) {
+        const file = files[i];
+
         const releaseName = JSON.parse(fs.readFileSync(`${RELEASE_DIR}/${file}`, 'utf-8')).Name;
-        const url = encodeURI(`${basePath}/release?projectScopeDown=true&projectScopeUp=true&query=(Name = ${releaseName})&fetch=true`);
+        const url = encodeURI(`${basePath}/release?projectScopeDown=true&projectScopeUp=false&project=/project/${project.ObjectID}&query=(Name = "${releaseName}")&fetch=true`);
         const response = await fetch(url, {method: 'GET', headers: header});
         const result = await response.json();
         const releases = result.QueryResult.Results;
+
         releases.forEach(r => {
             // this is the new Project ID
-            releaseDict[`${item.Name}__${item.Project.ObjectID}`] = r.ObjectID;
+            releaseDict[`${r.Name}__${r.Project._refObjectName}`] = r.ObjectID;
         });
-    });
+    };
 };
 
 /****** Items *********/
@@ -123,7 +128,7 @@ const buildItemBody = function(item, parent) {
     const innerBody = {
         'Name': item.Name,
         'Description': item.Description,
-        'Release': (item.Release) ? releaseDict[getReleaseKey(item)] : null,
+        'Release': (item.Release) ? `/release/${releaseDict[getReleaseKey(item)]}` : null,
         'PlanEstimate': item.PlanEstimate,
         'RefinedEstimate': item.RefinedEstimate,
         'PreliminaryEstimate': (item.PreliminaryEstimate) ? preliminaryDict[item.PreliminaryEstimate.ObjectID] : null,
@@ -261,7 +266,7 @@ const doIt = async function() {
         writeProjectDict();
     }
     await loadThings(headers, project, RELEASE_DIR, buildThing(buildReleaseUrl, buildReleaseBody, releaseDict));
-    await completeReleaseDict(headers);
+    await completeReleaseDict(headers, project);
     await loadThings(headers, project, ITEM_DIR, buildThing(buildItemUrl, buildItemBody, itemDict));
 };
 
