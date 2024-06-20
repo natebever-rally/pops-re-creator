@@ -1,7 +1,7 @@
 import readline from 'readline-sync';
 import fetch from 'node-fetch';
 import fs, { write } from 'fs';
-import { release } from 'os';
+import { release, type } from 'os';
 
 const PI_HIERARCHY = 'old_pi_hierarchy';
 const RELEASE_DIR = 'releases.pops';
@@ -11,7 +11,12 @@ const PROJECT_DIR = 'project.pops';
 const PROJECT_DICT = 'project.dict';
 const OLD_PRELIMINARY = 'preliminary.estimates';
 
-const baseRallyURL = 'https://nbever.testn.f4tech.com/';//'https://rally1.rallydev.com';
+const RELEASE_DICT = 'release.dict';
+const ITEM_DICT = 'item.dict';
+
+const baseRallyURLInput = readline.question('Rally Instance [https://rally1.rallydev.com]:');
+const baseRallyURL = (!baseRallyURLInput || baseRallyURLInput.length === 0) ? 'https://rally1.rallydev.com' : baseRallyURLInput;
+
 const baseAPIPath = '/slm/webservice/v2.0';
 const basePath = `${baseRallyURL}${baseAPIPath}`;
 
@@ -21,13 +26,18 @@ const workspaceId = realine.question('Workspace ID: ');
 const projectId = readline.question('Parent project ID: ');
 
 let projectDict = {};
-const releaseDict = {};
-const itemDict = {};
+const planDict = {};
+let releaseDict = {};
+let itemDict = {};
 const newPiDict = {};
 let oldPiDict = {};
 let preliminaryDict = {};
 
 /****** generic *******/
+
+const getObjectIdFromRef = function(ref) {
+    return parseInt(ref.substring(ref.lastIndexOf('/') + 1));
+};
 
 const getReleaseKey = function(item) {
     return `${item.Release.Name}__${item.Project._refObjectName}`
@@ -183,9 +193,201 @@ const buildProjectBody = function(project, parent) {
     return body;
 };
 
-const writeProjectDict = function() {
-    fs.writeFileSync(PROJECT_DICT, JSON.stringify(projectDict));
+const writeDict = function(filename, dictToWrite) {
+    fs.writeFileSync(filename, JSON.stringify(dictToWrite));
 };
+
+const getProject = async function(header, projectId) {
+
+    const url = encodeURI(`${basePath}/project/${projectId}`);
+    const pResponse = await fetch(url, {method: 'GET', headers: header});
+    const pJson = await pResponse.json();
+    const project = pJson.Project;
+    return project;
+};
+
+/** Plan stuff ***********************************/
+
+const loadPlans = async function(header, project) {
+
+    // separate plans into plans with parents and those without.
+    const dirs = fs.readdirSync(PLAN_DIR);
+    const allPlans = dirs.map(file => {
+        return JSON.parse(fs.readFileSync(`${PLAN_DIR}/${file}`, 'utf-8'));
+    });
+
+    const noParentPlans = allPlans.filter(plan => {
+        return plan.ParentCapacityPlan === null;
+    });
+
+    const plansWithParents = allPlans.filter(plan => {
+        return plan.ParentCapacityPlan !== null;
+    });
+
+    const typeMapping = await buildTypeMapping(header);
+        
+    // build plans with no parents first
+    for (let i = 0; i < noParentPlans.length; i++) {
+        await buildPlan(header, project, noParentPlans[i], typeMapping);
+    }
+
+    // build plans with parents next
+    for (let j = 0; j < plansWithParents.length; j++) {
+        await buildPlan(header, project, plansWithParents[j], typeMapping);
+    }
+};
+
+const makeBatchEntry = function(path, body) {
+    return { Entry: { Path: path, Method: 'POST', Body: body } };
+};
+
+const addProjectsToPlan = function(plan, batchList) {
+
+    // adding the projects
+    const capacityPlanProjectDict = plan.realCapacityPlanProjects.reduce( (capacityPlanProjectDict, aProject) => {
+
+        const projectBody = {
+            CapacityPlanProject: {
+                CapacityPlan: '/workingcapacityplan/{{0}}',
+                Project: `/project/${projectDict[getObjectIdFromRef(aProject.Project._ref)]}`,
+                PlannedCapacityCount: aProject.PlannedCapacityCount,
+                PlannedCapacityPoints: aProject.PlannedCapacityPoints
+            }
+        };
+
+        // first time will be 1 because the plan is at index 0... 
+        capacityPlanProjectDict[aProject.ObjectID] = batchList.length;
+        batchList.push(makeBatchEntry('/capacityplanproject/create', projectBody));
+        return capacityPlanProjectDict;
+    }, {});
+
+    return capacityPlanProjectDict;
+};
+
+const addItemsToPlan = function(plan, typeMapping, batchList) {
+
+    // adding the items
+    const capacityPlanItemDict = plan.realCapacityItems.reduce((capacityPlanItemDict, anItem, index) => {
+
+        const objectId = getObjectIdFromRef(anItem.PortfolioItem._ref);
+        const portfolioItemId = itemDict[objectId];
+
+        console.log(`Adding ${plan.realAssociatedItems[index].Name}`);
+
+        const itemBody = {
+            CapacityPlanItem: {
+                CapacityPlan: '/workingcapacityplan/{{0}}',
+                PortfolioItem: `/PortfolioItem/${typeMapping[anItem.PortfolioItem._type].Name}/${portfolioItemId}`
+            }
+        };
+
+        capacityPlanItemDict[anItem.ObjectID] = batchList.length;
+        batchList.push(makeBatchEntry('/capacityplanitem/create', itemBody)); 
+        return capacityPlanItemDict;
+    }, {});
+
+    return capacityPlanItemDict;
+};
+
+const addAssignmentsToPlan = function(plan, capacityPlanItemDict, capacityPlanProjectDict, batchList) {
+    // adding the assignments
+    plan.realAssignments.forEach(assignment => {
+        const itemBody = {
+            CapacityPlanAssignment: {
+                CapacityPlanItem: `/capacityplanItem/{{${capacityPlanItemDict[getObjectIdFromRef(assignment.CapacityPlanItem._ref)]}}}`,
+                CapacityPlanProject: `/capacityplanproject/{{${capacityPlanProjectDict[getObjectIdFromRef(assignment.CapacityPlanProject._ref)]}}}`,
+                AllocationPoints: assignment.AllocationPoints,
+                AllocationCount: assignment.AllocationCount
+            }
+        };
+
+        batchList.push(makeBatchEntry('/capacityplanassignment/create', itemBody));
+    });
+};
+
+const buildPlan = async function(header, project, plan, typeMapping) {
+
+    const url = encodeURI(`${basePath}/batch?fetch=true`);
+
+    const endReleaseKey = `${plan.EndRelease._refObjectName}__${plan.Project._refObjectName}`;
+    const startReleaseKey = `${plan.StartRelease._refObjectName}__${plan.Project._refObjectName}`;
+
+    const body = {
+        "workingcapacityplan": {
+            Name: plan.Name,
+            EndRelease: `/release/${releaseDict[endReleaseKey]}`,
+            StartRelease: `/release/${releaseDict[startReleaseKey]}`,
+            EstimationType: plan.EstimationType,
+            HierarchyType: plan.HierarchyType,
+            ProjectMode: plan.ProjectMode,
+            ItemTypeDef: `/typedefinition/${getObjectIdFromRef(typeMapping[`PortfolioItem/${plan.ItemTypeDef._refObjectName}`]._ref)}`,
+            Project: `/project/${projectDict[getObjectIdFromRef(plan.Project._ref)]}`
+        }
+    };
+
+    const batchList = [];
+    // 0th request
+    batchList.push(makeBatchEntry('/workingcapacityplan/create', body));
+
+    // the batch index for a particular item.
+    const capacityPlanProjectDict = addProjectsToPlan(plan, batchList);
+    const capacityPlanItemDict = addItemsToPlan(plan, typeMapping, batchList);
+    addAssignmentsToPlan(plan, capacityPlanItemDict, capacityPlanProjectDict, batchList);
+
+    const batchBody =  {
+        Batch: batchList
+    };
+
+    const response = await fetch(url, {method: 'POST', body: JSON.stringify(batchBody), headers: header});
+    const result = await response.json();
+    const newPlan = result.BatchResult.Results[0].Object;
+    planDict[plan.ObjectID] = newPlan;
+
+    console.log(`Created Plan: ${plan.Name}`);
+
+    // set parent if it has one
+    if (plan.ParentCapacityPlan) {
+        const url = encodeURI(`${basePath}/workingcapacityplan/${newPlan.ObjectID}`);
+
+        const parentPlan = planDict[getObjectIdFromRef(plan.ParentCapacityPlan._ref)];
+        const parentProjectName = parentPlan.Project._refObjectName;
+
+        const body = {
+            WorkingCapacityPlan: {
+                ParentCapacityPlan: `/workingcapacityplan/${parentPlan.ObjectID}`,
+                TargetRelease: `/release/${releaseDict[plan.StartRelease._refObjectName + '__' + parentProjectName]}`,
+                TargetProject: `/project/${projectDict[getObjectIdFromRef(plan.Project._ref)]}`
+            }
+        };
+
+        const response = await fetch(url, {headers: header, method: 'POST', body: JSON.stringify(body)});
+        const result = await response.json();
+        console.log('setting parent...');
+    }
+};
+
+const buildTypeMapping = async function(headers) {
+
+   const oldPiDict = JSON.parse(fs.readFileSync(PI_HIERARCHY, 'utf-8'));
+   const piTypes = await getPIHierarchy(headers);
+
+    // create a [old common name]: new typedef
+    const mapping = Object.entries(oldPiDict).reduce((m, entry) => {
+        const [key, value] = entry;
+        const newType = piTypes.find(type => {
+            return type.Ordinal === value;
+        });
+
+        m[key] = newType;
+        return m;
+    }, {});
+
+    return mapping;
+};
+
+/** */
+
+//{"workingcapacityplan":{"ParentCapacityPlan":"/workingcapacityplan/423575325761","TargetProject":null,"TargetRelease":{"_ref":"/release/706545214627"}}}
 
 const getPIHierarchy = async function(header) {
 
@@ -199,15 +401,6 @@ const getPIHierarchy = async function(header) {
     const types = await response.json();
 
     return types.QueryResult.Results;
-};
-
-const getProject = async function(header, projectId) {
-
-    const url = encodeURI(`${basePath}/project/${projectId}`);
-    const pResponse = await fetch(url, {method: 'GET', headers: header});
-    const pJson = await pResponse.json();
-    const project = pJson.Project;
-    return project;
 };
 
 const createPreliminaryMappings = async function(header) {
@@ -237,7 +430,41 @@ const createPreliminaryMappings = async function(header) {
         preliminaryDict[key] = mapValue.key;
     });
 
-}
+};
+
+const doProjects = async function(headers, project) {
+    if (fs.existsSync(PROJECT_DICT)) {
+        console.log('Loading existing project dictionary...');
+        projectDict = JSON.parse(fs.readFileSync(PROJECT_DICT, 'utf-8'));
+    }
+    else {
+        await loadThings(headers, project, PROJECT_DIR, buildThing(buildProjectUrl, buildProjectBody, projectDict));
+        writeDict(PROJECT_DICT, projectDict);
+    }
+};
+
+const doReleases = async function(headers, project) {
+    if (fs.existsSync(RELEASE_DICT)) {
+        console.log('Loading existing release dictionary...');
+        releaseDict = JSON.parse(fs.readFileSync(RELEASE_DICT, 'utf-8'));
+    }
+    else {
+        await loadThings(headers, project, RELEASE_DIR, buildThing(buildReleaseUrl, buildReleaseBody, releaseDict));
+        await completeReleaseDict(headers, project);
+        writeDict(RELEASE_DICT, releaseDict);
+    }
+};
+
+const doItems = async function(headers, project) {
+    if (fs.existsSync(ITEM_DICT)) {
+        console.log('Loading existing item dictionary...');
+        itemDict = JSON.parse(fs.readFileSync(ITEM_DICT, 'utf-8'));
+    }
+    else {
+        await loadThings(headers, project, ITEM_DIR, buildThing(buildItemUrl, buildItemBody, itemDict));
+        writeDict(ITEM_DICT, itemDict);
+    }
+};
 
 const doIt = async function() {
 
@@ -257,17 +484,11 @@ const doIt = async function() {
 
     await createPreliminaryMappings(headers);
 
-    if (fs.existsSync(PROJECT_DICT)) {
-        console.log('Loading existing project dictionary...');
-        projectDict = JSON.parse(fs.readFileSync(PROJECT_DICT, 'utf-8'));
-    }
-    else {
-        await loadThings(headers, project, PROJECT_DIR, buildThing(buildProjectUrl, buildProjectBody, projectDict));
-        writeProjectDict();
-    }
-    await loadThings(headers, project, RELEASE_DIR, buildThing(buildReleaseUrl, buildReleaseBody, releaseDict));
-    await completeReleaseDict(headers, project);
-    await loadThings(headers, project, ITEM_DIR, buildThing(buildItemUrl, buildItemBody, itemDict));
+    await doProjects(headers, project);
+    await doReleases(headers, project);
+    await doItems(headers, project);
+
+    await loadPlans(headers, project, piTypes);
 };
 
 doIt();

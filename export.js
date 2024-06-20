@@ -14,7 +14,7 @@ const basePath = `${baseRallyURL}${baseAPIPath}`;
 const apiKey = readline.question('APIKey: ');
 
 const projectId = readline.question('Parent project ID: ');
-const portfolioType = readline.question('Portfolio Item Type (Ordinal): ');
+const portfolioType = 0;//readline.question('Portfolio Item Type (Ordinal): ');
 
 console.log('Attempting to connect...');
 
@@ -60,7 +60,7 @@ const getPreliminaryEstimates = async function(header) {
 
 const getReleases = async function(header, projectUuid) {
 
-    const url = encodeURI(`${basePath}/release?project=/project/${projectUuid}&projectScopeDown=false&fetch=Name,ReleaseDate,ReleaseStartDate,ObjectID,Project`);
+    const url = encodeURI(`${basePath}/release?project=/project/${projectUuid}&projectScopeDown=false&fetch=Name,ReleaseDate,ReleaseStartDate,ObjectID,Project&pagesize=2000`);
     console.log(`Getting releases: ${url}`);
     const response = await fetch(url, {headers: header, method: 'GET'});
     const rJson = await response.json();
@@ -90,7 +90,7 @@ const getChildren = async function(parent, header) {
         return;
     }
 
-    const url = encodeURI(`${childRef}?pageSize=2000&fetch=Name,Description,PlanEstimate,RefinedEstimate,PreliminaryEstimate,Release,ObjectID,FormattedID,UserStories,Children,Project,DisplayColor`);
+    const url = encodeURI(`${childRef}?pagesize=2000&fetch=Name,Description,PlanEstimate,RefinedEstimate,PreliminaryEstimate,Release,ObjectID,FormattedID,UserStories,Children,Project,DisplayColor`);
     const response = await fetch(url, {method: 'GET', headers: header});
     const childs = await response.json();
     parent.realChildren = [];
@@ -109,7 +109,7 @@ const getChildren = async function(parent, header) {
 
 const getItemTree = async function(header, projectUuid, types) {
 
-    const url = encodeURI(`${basePath}/artifacts?types=PortfolioItem/${types[portfolioType].Name}&project=/project/${projectUuid}&projectScopeDown=true&projectScopeUp=false&pageSize=2000&fetch=Children,Name,RefinedEstimate,PreliminaryEstimate,Description,ObjectID,FormattedID,UserStories,Project,DisplayColor`);
+    const url = encodeURI(`${basePath}/artifacts?types=PortfolioItem/${types[portfolioType].Name}&project=/project/${projectUuid}&projectScopeDown=true&projectScopeUp=false&pagesize=2000&fetch=Children,Name,RefinedEstimate,PreliminaryEstimate,Description,ObjectID,FormattedID,UserStories,Project,DisplayColor`);
     console.log(`Getting artifacts... ${url}`);
     const response = await fetch(url, {headers: header, method: 'GET'});
     const rootItems = await response.json();
@@ -128,7 +128,7 @@ const getItemTree = async function(header, projectUuid, types) {
 
 const getCapacityPlans = async function(header, projectUuid) {
 
-    const url = encodeURI(`${basePath}/workingcapacityplan?project=/project/${projectUuid}&projectScopeDown=true&projectScopeUp=false&fetch=true&pageSize=2000`);
+    const url = encodeURI(`${basePath}/workingcapacityplan?project=/project/${projectUuid}&projectScopeDown=true&projectScopeUp=false&fetch=true&pagesize=2000`);
     console.log(`Getting plans... ${url}`);
     const response = await fetch(url, {headers: header, method: 'GET'});
     const plans = await response.json();
@@ -139,7 +139,7 @@ const getCapacityPlans = async function(header, projectUuid) {
                 return [];
             }
 
-            const url2 = encodeURI(`${plan[attr]._ref}?pageSize=2000`);
+            const url2 = encodeURI(`${plan[attr]._ref}?pagesize=2000&fetch=true`);
             console.log(`Getting plan details for ${attr}: ${url2}`);
             const r2 = await fetch(url2, {headers: header, method: 'GET'});
             const info = await r2.json();
