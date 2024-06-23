@@ -22,7 +22,7 @@ const basePath = `${baseRallyURL}${baseAPIPath}`;
 
 const apiKey = readline.question('APIKey: ');
 
-const workspaceId = realine.question('Workspace ID: ');
+const workspaceId = readline.question('Workspace ID: ');
 const projectId = readline.question('Parent project ID: ');
 
 let projectDict = {};
