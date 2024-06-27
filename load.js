@@ -481,13 +481,13 @@ const doIt = async function() {
     });
     oldPiDict = JSON.parse(fs.readFileSync(PI_HIERARCHY, 'utf-8'));
 
-    // await createPreliminaryMappings(headers);
+    await createPreliminaryMappings(headers);
 
-    // await doProjects(headers, project);
-    // await doReleases(headers, project);
-    // await doItems(headers, project);
+    await doProjects(headers, project);
+    await doReleases(headers, project);
+    await doItems(headers, project);
 
-    // await loadPlans(headers, project, piTypes);
+    await loadPlans(headers, project, piTypes);
 };
 
 doIt();
