@@ -321,7 +321,8 @@ const buildPlan = async function(header, project, plan, typeMapping) {
             HierarchyType: plan.HierarchyType,
             ProjectMode: plan.ProjectMode,
             ItemTypeDef: `/typedefinition/${getObjectIdFromRef(typeMapping[`PortfolioItem/${plan.ItemTypeDef._refObjectName}`]._ref)}`,
-            Project: `/project/${projectDict[getObjectIdFromRef(plan.Project._ref)]}`
+            Project: `/project/${projectDict[getObjectIdFromRef(plan.Project._ref)]}`,
+            Workspace: `/workspace/${workspaceId}`
         }
     };
 
@@ -387,11 +388,9 @@ const buildTypeMapping = async function(headers) {
 
 /** */
 
-//{"workingcapacityplan":{"ParentCapacityPlan":"/workingcapacityplan/423575325761","TargetProject":null,"TargetRelease":{"_ref":"/release/706545214627"}}}
-
 const getPIHierarchy = async function(header) {
 
-    const url = encodeURI(`${basePath}/typedefinition?query=(Parent.Name = "Portfolio Item")&fetch=Name,Ordinal&order=Ordinal DESC`);
+    const url = encodeURI(`${basePath}/typedefinition?query=(Parent.Name = "Portfolio Item")&workspace=/workspace/${workspaceId}&fetch=Name,Ordinal&order=Ordinal DESC`);
     console.log(`Getting PI Hierarchy: ${url}`);
     const response = await fetch(url, {
         method: 'GET',
@@ -407,7 +406,7 @@ const createPreliminaryMappings = async function(header) {
 
     preliminaryDict = JSON.parse(fs.readFileSync(OLD_PRELIMINARY, 'utf-8'));
     
-    const url = `${basePath}/preliminaryestimate?fetch=Value,Name,Description,CountValue,ObjectID`;
+    const url = `${basePath}/preliminaryestimate?workspace=/workspace/${workspaceId}&fetch=Value,Name,Description,CountValue,ObjectID`;
     console.log(`Getting preliminary estimates: ${url}`);
     const response = await fetch(url, {headers:header, method: 'GET'});
     const rJson = await response.json();
@@ -482,13 +481,13 @@ const doIt = async function() {
     });
     oldPiDict = JSON.parse(fs.readFileSync(PI_HIERARCHY, 'utf-8'));
 
-    await createPreliminaryMappings(headers);
+    // await createPreliminaryMappings(headers);
 
-    await doProjects(headers, project);
-    await doReleases(headers, project);
-    await doItems(headers, project);
+    // await doProjects(headers, project);
+    // await doReleases(headers, project);
+    // await doItems(headers, project);
 
-    await loadPlans(headers, project, piTypes);
+    // await loadPlans(headers, project, piTypes);
 };
 
 doIt();
