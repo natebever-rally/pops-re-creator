@@ -60,7 +60,7 @@ const getPreliminaryEstimates = async function(header) {
 
 const getReleases = async function(header, projectUuid) {
 
-    const url = encodeURI(`${basePath}/release?project=/project/${projectUuid}&projectScopeDown=false&fetch=Name,ReleaseDate,ReleaseStartDate,ObjectID,Project&pagesize=2000`);
+    const url = encodeURI(`${basePath}/release?project=/project/${projectUuid}&projectScopeDown=true&fetch=Name,ReleaseDate,ReleaseStartDate,ObjectID,Project&pagesize=2000`);
     console.log(`Getting releases: ${url}`);
     const response = await fetch(url, {headers: header, method: 'GET'});
     const rJson = await response.json();

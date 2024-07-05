@@ -43,6 +43,20 @@ const getReleaseKey = function(item) {
     return `${item.Release.Name}__${item.Project._refObjectName}`
 };
 
+const singleThreadFetch = async function(url, options, times = 0) {
+
+    const response = await fetch(url, options);
+    const result = await response.json();
+
+    if (result.CreateResult.Errors.length > 0) {
+        console.log(`Retrying ${url}`);
+        return await singleThreadFetch(url, options, times + 1);
+    }
+    else {
+        return result;
+    }
+}
+
 const loadThings = async function(header, project, dir, buildThings) {
 
     const dirs = fs.readdirSync(dir);
@@ -60,13 +74,11 @@ const buildThing = function(buildUrl, buildBody, dictToUse) {
         const body = buildBody(item, parent, dictToUse);
         const url = encodeURI(buildUrl(item));
 
-        const response = await fetch(url, {body: JSON.stringify(body), method: 'POST', headers: header});
-        const result = await response.json();
+        const result = await singleThreadFetch(url, {body: JSON.stringify(body), method: 'POST', headers: header});
         const newItem = result.CreateResult.Object;
 
         if (!newItem) {
-            console.error(`Failure: ${result.CreateResult.Errors[0]}`);
-            console.error(`URL: ${url}`);
+            console.log('Failure');
             return;
         }
 
@@ -107,6 +119,8 @@ const buildReleaseBody = function(item, parent) {
         }
     };
 
+    console.log(`Building ${item.Name}`);
+
     return body;
 };
 
@@ -118,16 +132,8 @@ const completeReleaseDict = async function(header, project) {
     for (let i = 0; i< files.length; i++) {
         const file = files[i];
 
-        const releaseName = JSON.parse(fs.readFileSync(`${RELEASE_DIR}/${file}`, 'utf-8')).Name;
-        const url = encodeURI(`${basePath}/release?projectScopeDown=true&projectScopeUp=false&project=/project/${project.ObjectID}&query=(Name = "${releaseName}")&fetch=true`);
-        const response = await fetch(url, {method: 'GET', headers: header});
-        const result = await response.json();
-        const releases = result.QueryResult.Results;
-
-        releases.forEach(r => {
-            // this is the new Project ID
-            releaseDict[`${r.Name}__${r.Project._refObjectName}`] = r.ObjectID;
-        });
+        const oldRelease = JSON.parse(fs.readFileSync(`${RELEASE_DIR}/${file}`, 'utf-8'));
+        releaseDict[`${oldRelease.Name}__${oldRelease.Project._refObjectName}`] = releaseDict[file];
     };
 };
 
@@ -146,14 +152,21 @@ const buildItemBody = function(item, parent) {
         'DisplayColor': item.DisplayColor
     };
 
+    if (item.Release && !releaseDict[getReleaseKey(item)]) {
+        console.log('Cannot find release');
+    }
+
     const key = (item._type === 'HierarchicalRequirement') ? 'UnifiedParent' : 'Parent';
     
     if (parent) {
         innerBody[key] = `/${parent._type}/${parent.ObjectID}`;
     }
 
+    const topKey = item._type === 'HierarchicalRequirement' ? item._type :
+        `PortfolioItem/${newPiDict[oldPiDict[item._type]].replace(' ', '')}`;
+
     const body = {
-        [`${item._type}`]: innerBody
+        [`${topKey}`]: innerBody
     };
 
     return body;
@@ -165,7 +178,7 @@ const buildItemUrl = function(item) {
         newType.startsWith('PortfolioItem') ? newType : `/portfolioitem/${newType}`
         :
         'hierarchicalrequirement';
-    const url = `${basePath}/${typeStrings}/create`;
+    const url = `${basePath}/${typeStrings}/create?workspace=/workspace/${workspaceId}`.replace(' ', '');
     return url;
 }
 
@@ -178,7 +191,7 @@ const buildProjectUrl = function(project) {
 const buildProjectBody = function(project, parent) {
 
     const parentId = (parent) ? parent.ObjectID : projectId;
-    project.Parent = `/project/${parentId}?fetch=true`;
+    project.Parent = `/project/${parentId}`;
 
     const body = {
         'Project': {
@@ -257,7 +270,7 @@ const addProjectsToPlan = function(plan, batchList) {
 
         // first time will be 1 because the plan is at index 0... 
         capacityPlanProjectDict[aProject.ObjectID] = batchList.length;
-        batchList.push(makeBatchEntry('/capacityplanproject/create', projectBody));
+        batchList.push(makeBatchEntry(`/capacityplanproject/create?workspace=/workspace/${workspaceId}`, projectBody));
         return capacityPlanProjectDict;
     }, {});
 
